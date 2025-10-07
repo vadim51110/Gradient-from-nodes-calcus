@@ -1,0 +1,17 @@
+﻿################################################################################
+# Данный GITIGNORE-файл был автоматически создан Microsoft(R) Visual Studio.
+################################################################################
+
+*.json
+/.vs/Gradient-from-nodes-calcus/v17
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/v17/Browse.VC.db-shm
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/v17/Browse.VC.db
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/v17/Browse.VC.db-wal
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/v17/ipch/AutoPCH/9ac46110856283b8/GRADIENT-FROM-NODES-CALCUS.ipch
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/v17/ipch/AutoPCH/23c58eb05f527cfb/GRADIENT-FROM-NODES-CALCUS.ipch
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/v17
+/Gradient-from-nodes-calcus/Gradient-from-nodes-calcus.sln
+/Gradient-from-nodes-calcus/Gradient-from-nodes-calcus.vcxproj.filters
+*.vcxproj
+/Gradient-from-nodes-calcus/Gradient-from-nodes-calcus.vcxproj.user
+/Gradient-from-nodes-calcus/.vs/Gradient-from-nodes-calcus/FileContentIndex
