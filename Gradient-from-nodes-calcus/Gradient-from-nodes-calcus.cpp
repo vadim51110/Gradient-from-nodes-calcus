@@ -12,7 +12,7 @@ const int LSM_iter_phi = 10;
 const int LSM_iter_param_x = 100;
 const int LSM_iter_param_y = 10;
 const int LSM_iter_param_z = 10;
-
+const int Nstep = 600;
 
 static double LSMcalcus(double** coordif, double Ex, double Ey, double Ez, double phi0)
 {
@@ -518,6 +518,7 @@ int main()
         }
         local_r[4] += i * (1.0 / L);
         get_ef(EF, n_epoints, local_r, local_mf);
+//ordered can be changed to critical for faster calculations if order is not required
 #pragma omp ordered
         {
             fprintf(fw, "%i\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, local_mf[0], local_mf[1], local_mf[2], local_r[0], local_r[2], local_r[4]);
