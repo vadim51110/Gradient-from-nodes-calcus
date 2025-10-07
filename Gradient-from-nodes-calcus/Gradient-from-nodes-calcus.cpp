@@ -13,7 +13,7 @@ const int LSM_iter_param_x = 100;
 const int LSM_iter_param_y = 10;
 const int LSM_iter_param_z = 10;
 
-//Test
+
 static double LSMcalcus(double** coordif, double Ex, double Ey, double Ez, double phi0)
 {
     int i;
