@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <omp.h>
+#include <cstdio>
 #pragma warning(disable:4996)
 const int n_inter = 16;
 const double L = 4e2;
@@ -13,6 +14,64 @@ const int LSM_iter_param_x = 100;
 const int LSM_iter_param_y = 10;
 const int LSM_iter_param_z = 10;
 const int Nstep = 600;
+
+static int re_ind(int i, int n)
+{
+    while (i >= n)
+    {
+        i -= n;
+    }
+    while (i < 0)
+    {
+        i += n;
+    }
+    return i;
+
+}
+
+static double det3_3(double** a, int n)
+{
+    int i, j;
+    double res = 0;
+    double mul_1;
+    double mul_2;
+    for (i = 0; i < n; i++)
+    {
+        mul_1 = 1;
+        mul_2 = 1;
+        for (j = 0; j < n; j++)
+        {
+            mul_1 = mul_1 * a[j][re_ind(j + i, n)];
+            mul_2 = mul_2 * a[j][re_ind(-j + i, n)];
+        }
+        res += mul_1 - mul_2;
+    }
+    return res;
+}
+
+static void Transposition(double* res, double* a, int n, int m)
+{
+    int i, j;
+    for (i = 0; i < n; i++)
+        for (j = 0; j < m; j++)
+            res[j * n + i] = a[i * m + j];
+}
+
+static void multiplier(double* res, double* a, double* b, int n, int sum_dim, int m)
+{
+    int i, j, k;
+    for (i = 0; i < n; i++)
+        for (j = 0; j < m; j++)
+            res[i * m + j] = 0;
+
+    for (i = 0; i < n; i++)
+        for (j = 0; j < m; j++)
+            for (k = 0; k < sum_dim; k++)
+            {
+                res[i * m + j] += a[i * sum_dim + k] * b[k * m + j];
+            }
+}
+
 
 static double LSMcalcus(double** coordif, double Ex, double Ey, double Ez, double phi0)
 {
@@ -87,6 +146,91 @@ static void LSMcontroller(double** coordif, double FEEx[3], double FEDis[3], dou
     ef[1] = Ey = FEEx[1] - FEDis[1] * (2 - 4 * opt_j / (float)LSM_iter_param_y);
     ef[2] = Ez = FEEx[2] - FEDis[2] * (2 - 4 * opt_k / (float)LSM_iter_param_z);
 
+}
+
+int inv_matrix(double* A, int N)
+{
+    int i, j, k;
+    double max_val;
+    double factor;
+    int max_row;
+    double** B;
+    B = (double**)malloc(N * sizeof(double*));
+    for (i = 0; i < N; i++)
+        B[i] = (double*)malloc(N * sizeof(double));
+    for (i = 0; i < N; i++)
+        for (j = 0; j < N; j++)
+            if (i == j)
+                B[i][j] = 1;
+            else
+                B[i][j] = 0;
+    // Приведем матрицу к виду, наболее близкому к диагональному, перестановкой строк
+    for (i = 0; i < N - 1; i++)
+    {
+        max_row = i;
+        max_val = fabs(A[i * N + i]);
+        for (j = i + 1; j < N; j++) {
+            if (fabs(A[j * N + i]) > max_val) {
+                max_val = fabs(A[j * N + i]);
+                max_row = j;
+            }
+        }
+        if (i != max_row)
+        {
+            for (j = 0; j < N; j++)
+            {
+                A[i * N + j] = A[max_row * N + j] - A[i * N + j];
+                A[max_row * N + j] = A[max_row * N + j] - A[i * N + j];
+                A[i * N + j] = A[max_row * N + j] + A[i * N + j];
+                B[i][j] = B[max_row][j] - B[i][j];
+                B[max_row][j] = B[max_row][j] - B[i][j];
+                B[i][j] = B[max_row][j] + B[i][j];
+            }
+        }
+        // Учет вырожденности
+        if (max_val < 1e-12)
+        {
+            printf("Error max_val almost equal to 0, try using old method for this cases");
+            return -1;
+
+        }
+        //printf("%lf\t%lf\t%lf\n", A[0][0], A[0][1], A[0][2]);
+        //printf("%lf\t%lf\t%lf\n", A[1][0], A[1][1], A[1][2]);
+        //printf("%lf\t%lf\t%lf\n\n", A[2][0], A[2][1], A[2][2]);
+        for (j = i + 1; j < N; j++) {
+            factor = A[j * N + i] / A[i * N + i];
+            for (k = i; k < N; k++) {
+                A[j * N + k] -= factor * A[i * N + k];
+                B[j][k] -= factor * B[i][k];
+            }
+        }
+
+    }
+    //printf("%lf\t%lf\t%lf\n", delta_phi[0], delta_phi[1], delta_phi[2]);
+    //printf("%lf\t%lf\t%lf\n", A[0][0], A[0][1], A[0][2]);
+    //printf("%lf\t%lf\t%lf\n", A[1][0], A[1][1], A[1][2]);
+    //printf("%lf\t%lf\t%lf\n\n", A[2][0], A[2][1], A[2][2]);
+    for (i = N - 1; i >= 0; i--)
+    {
+        for (j = i + 1; j < N; j++)
+        {
+            for (k = 0; k < N; k++)
+                B[i][k] -= B[j][k] * A[i * N + j];
+            A[i * N + j] = 0;
+        }
+        for (j = 0; j < N; j++)
+        {
+            B[i][j] /= A[i * N + i];
+        }
+        A[i * N + i] = 1;
+    }
+    for (i = 0; i < N; i++)
+        for (j = 0; j < N; j++)
+            A[i * N + j] = B[i][j];
+    for (i = 0; i < N; i++)
+        free(B[i]);
+    free(B);
+    return 0;
 }
 
 void gaus3x3solver(double A[3][3], double ef[3], double delta_phi[3])
@@ -166,6 +310,85 @@ void gaus3x3solver(double A[3][3], double ef[3], double delta_phi[3])
 }
 
 static void get_ef(double** a, double n, double y1[6], double ef[3])
+{
+    int i, j, k;
+    int fullnes;
+    int prew_fullnes;
+    double x = L * y1[0];
+    double z = L * y1[4];
+    double y = L * y1[2];
+    //Нахождение ближайшего узла и ещё 3
+    double** coordif;
+    coordif = (double**)malloc(n * sizeof(double*));
+    for (i = 0; i < n; i++)
+        coordif[i] = (double*)malloc(5 * sizeof(double));
+    for (i = 0; i < n; i++)
+    {
+        coordif[i][0] = -x + a[i][0];
+        coordif[i][1] = -y + a[i][1];
+        coordif[i][2] = -z + a[i][2];
+        coordif[i][3] = pow(pow(coordif[i][0], 2) + pow(coordif[i][1], 2) + pow(coordif[i][2], 2), 0.5);
+        coordif[i][4] = a[i][3];
+    }
+    for (j = 0; j < n_group * 4; j++)
+    {
+        for (i = j; i < n; i++)
+        {
+            if (coordif[j][3] > coordif[i][3])
+            {
+                coordif[j][4] = coordif[i][4] - coordif[j][4];
+                coordif[i][4] = coordif[i][4] - coordif[j][4];
+                coordif[j][4] = coordif[j][4] + coordif[i][4];
+                coordif[j][3] = coordif[i][3] - coordif[j][3];
+                coordif[i][3] = coordif[i][3] - coordif[j][3];
+                coordif[j][3] = coordif[j][3] + coordif[i][3];
+                coordif[j][2] = coordif[i][2] - coordif[j][2];
+                coordif[i][2] = coordif[i][2] - coordif[j][2];
+                coordif[j][2] = coordif[j][2] + coordif[i][2];
+                coordif[j][1] = coordif[i][1] - coordif[j][1];
+                coordif[i][1] = coordif[i][1] - coordif[j][1];
+                coordif[j][1] = coordif[j][1] + coordif[i][1];
+                coordif[j][0] = coordif[i][0] - coordif[j][0];
+                coordif[i][0] = coordif[i][0] - coordif[j][0];
+                coordif[j][0] = coordif[j][0] + coordif[i][0];
+
+            }
+        }
+    }
+    // Признаки coordif[0:n_group*4][0:2]
+    // Результаты coordif[0:n_group*4][4]
+    double A[n_group * 4 * 4];
+    double A_t[4 * n_group * 4];
+    double A_res[4 * 4 * n_group];
+    double A_inv[16];
+    double solution[4];
+    double y_mat[n_group * 4];
+    ef[0] = 0;
+    ef[1] = 0;
+    ef[2] = 0;
+    for (i = 0; i < n_group * 4; i++)
+    {
+        for (j = 0; j < 3; j++)
+            A[i * 4 + j] = coordif[i][j];
+        A[i * 4 + 3] = 1;
+        y_mat[i] = coordif[i][4];
+    }
+    Transposition(A_t, A, n_group * 4, 4);
+    multiplier(A_inv, A_t, A, 4, n_group * 4, 4);
+    k = inv_matrix(A_inv, 4);
+    if (k == -1)
+        return;
+    multiplier(A_res, A_inv, A_t, 4, 4, n_group * 4);
+    multiplier(solution, A_res, y_mat, 4, n_group * 4, 1);
+    ef[0] = solution[0];
+    ef[1] = solution[1];
+    ef[2] = solution[2];
+    for (i = 0; i < n; i++)
+        free(coordif[i]);
+    free(coordif);
+}
+
+static void get_ef_old(double** a, double n, double y1[6], double ef[3])
 {
     int i, j, k;
     int fullnes;
@@ -518,7 +741,7 @@ int main()
         }
         local_r[4] += i * (1.0 / L);
         get_ef(EF, n_epoints, local_r, local_mf);
-//ordered can be changed to critical for faster calculations if order is not required
+        //ordered can be changed to critical for faster calculations if order is not required
 #pragma omp ordered
         {
             fprintf(fw, "%i\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, local_mf[0], local_mf[1], local_mf[2], local_r[0], local_r[2], local_r[4]);
