@@ -5,17 +5,38 @@
 #include <time.h>
 #include <omp.h>
 #include <cstdio>
+#include "nanoflann.hpp"
 #pragma warning(disable:4996)
-const int n_inter = 16;
+const size_t n_inter = 16;
 const double L = 4e2;
-const int n_group = 9;
-const int LSM_iter_phi = 10;
-const int LSM_iter_param_x = 100;
-const int LSM_iter_param_y = 10;
-const int LSM_iter_param_z = 10;
-const int Nstep = 600;
+const size_t n_group = 9;
+const size_t LSM_iter_phi = 10;
+const size_t LSM_iter_param_x = 100;
+const size_t LSM_iter_param_y = 10;
+const size_t LSM_iter_param_z = 10;
+const size_t Nstep = 600;
 
-static int re_ind(int i, int n)
+struct Adapter {
+    double** points;
+    size_t n;
+
+    Adapter(double** pts, size_t count) : points(pts), n(count) {}
+
+    size_t kdtree_get_point_count() const { return n; }
+
+    double kdtree_get_pt(size_t idx, size_t dim) const {
+        return points[idx][dim];
+    }
+
+    template<class BBOX>
+    bool kdtree_get_bbox(BBOX&) const { return false; }
+};
+
+
+typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, Adapter>,
+    Adapter, 3, size_t> Mytree;
+
+static int re_ind(int i, size_t n)
 {
     while (i >= n)
     {
@@ -29,7 +50,7 @@ static int re_ind(int i, int n)
 
 }
 
-static double det3_3(double** a, int n)
+static double det3_3(double** a, size_t n)
 {
     int i, j;
     double res = 0;
@@ -49,7 +70,7 @@ static double det3_3(double** a, int n)
     return res;
 }
 
-static void Transposition(double* res, double* a, int n, int m)
+static void Transposition(double* res, double* a, size_t n, size_t m)
 {
     int i, j;
     for (i = 0; i < n; i++)
@@ -57,7 +78,7 @@ static void Transposition(double* res, double* a, int n, int m)
             res[j * n + i] = a[i * m + j];
 }
 
-static void multiplier(double* res, double* a, double* b, int n, int sum_dim, int m)
+static void multiplier(double* res, double* a, double* b, size_t n, size_t sum_dim, size_t m)
 {
     int i, j, k;
     for (i = 0; i < n; i++)
@@ -148,7 +169,7 @@ static void LSMcontroller(double** coordif, double FEEx[3], double FEDis[3], dou
 
 }
 
-int inv_matrix(double* A, int N)
+int inv_matrix(double* A, size_t N)
 {
     int i, j, k;
     double max_val;
@@ -309,54 +330,34 @@ void gaus3x3solver(double A[3][3], double ef[3], double delta_phi[3])
 
 }
 
-static void get_ef(double** a, double n, double y1[6], double ef[3])
+static void get_ef(Mytree* a, double n, double y1[6], double ef[3])
 {
+    size_t num_neighbors = n_group*4;
     int i, j, k;
-    int fullnes;
-    int prew_fullnes;
+    std::vector<size_t> indices(num_neighbors);
+    std::vector<double> distances(num_neighbors);
     double x = L * y1[0];
     double z = L * y1[4];
     double y = L * y1[2];
+    double query_point[3] = { x, y, z };
+    size_t found = (*a).knnSearch(
+        query_point,           // точка запроса
+        num_neighbors,         // сколько соседей
+        &indices[0],           // массив для индексов
+        &distances[0]          // массив для расстояний
+    );
     //Нахождение ближайшего узла и ещё 3
     double** coordif;
-    coordif = (double**)malloc(n * sizeof(double*));
-    for (i = 0; i < n; i++)
-        coordif[i] = (double*)malloc(5 * sizeof(double));
-    for (i = 0; i < n; i++)
+    coordif = (double**)malloc(4*n_group * sizeof(double*));
+    for (i = 0; i < 4*n_group; i++)
+        coordif[i] = (double*)malloc(4 * sizeof(double));
+    for (i = 0; i < 4*n_group; i++)
     {
-        coordif[i][0] = -x + a[i][0];
-        coordif[i][1] = -y + a[i][1];
-        coordif[i][2] = -z + a[i][2];
-        coordif[i][3] = pow(pow(coordif[i][0], 2) + pow(coordif[i][1], 2) + pow(coordif[i][2], 2), 0.5);
-        coordif[i][4] = a[i][3];
+        coordif[i][0] = -x + (*a).dataset_.kdtree_get_pt(indices[i], 0);
+        coordif[i][1] = -y + (*a).dataset_.kdtree_get_pt(indices[i], 1);
+        coordif[i][2] = -z + (*a).dataset_.kdtree_get_pt(indices[i], 2);
+        coordif[i][3] = (*a).dataset_.kdtree_get_pt(indices[i], 3);
     }
-    for (j = 0; j < n_group * 4; j++)
-    {
-        for (i = j; i < n; i++)
-        {
-            if (coordif[j][3] > coordif[i][3])
-            {
-                coordif[j][4] = coordif[i][4] - coordif[j][4];
-                coordif[i][4] = coordif[i][4] - coordif[j][4];
-                coordif[j][4] = coordif[j][4] + coordif[i][4];
-                coordif[j][3] = coordif[i][3] - coordif[j][3];
-                coordif[i][3] = coordif[i][3] - coordif[j][3];
-                coordif[j][3] = coordif[j][3] + coordif[i][3];
-                coordif[j][2] = coordif[i][2] - coordif[j][2];
-                coordif[i][2] = coordif[i][2] - coordif[j][2];
-                coordif[j][2] = coordif[j][2] + coordif[i][2];
-                coordif[j][1] = coordif[i][1] - coordif[j][1];
-                coordif[i][1] = coordif[i][1] - coordif[j][1];
-                coordif[j][1] = coordif[j][1] + coordif[i][1];
-                coordif[j][0] = coordif[i][0] - coordif[j][0];
-                coordif[i][0] = coordif[i][0] - coordif[j][0];
-                coordif[j][0] = coordif[j][0] + coordif[i][0];
-
-            }
-        }
-    }
-    // Признаки coordif[0:n_group*4][0:2]
-    // Результаты coordif[0:n_group*4][4]
     double A[n_group * 4 * 4];
     double A_t[4 * n_group * 4];
     double A_res[4 * 4 * n_group];
@@ -371,7 +372,7 @@ static void get_ef(double** a, double n, double y1[6], double ef[3])
         for (j = 0; j < 3; j++)
             A[i * 4 + j] = coordif[i][j];
         A[i * 4 + 3] = 1;
-        y_mat[i] = coordif[i][4];
+        y_mat[i] = coordif[i][3];
     }
     Transposition(A_t, A, n_group * 4, 4);
     multiplier(A_inv, A_t, A, 4, n_group * 4, 4);
@@ -383,12 +384,12 @@ static void get_ef(double** a, double n, double y1[6], double ef[3])
     ef[0] = solution[0];
     ef[1] = solution[1];
     ef[2] = solution[2];
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n_group*4; i++)
         free(coordif[i]);
     free(coordif);
 }
 
-static void get_ef_old(double** a, double n, double y1[6], double ef[3])
+static void get_ef_old(double** a, size_t n, double y1[6], double ef[3])
 {
     int i, j, k;
     int fullnes;
@@ -698,7 +699,8 @@ int main()
 {
     double** EF;
     int i, j, k;
-    int n_epoints;
+    int n_epoints_temp;
+    size_t n_epoints;
     FILE* fel;
     fel = fopen("Efield", "r");
     if (fel == NULL)
@@ -706,7 +708,8 @@ int main()
         printf("\nError - reading of EF is impossible!");
         return -1;
     };
-    fscanf(fel, "%i", &n_epoints);
+    fscanf(fel, "%i", &n_epoints_temp);
+    n_epoints = (size_t)n_epoints_temp;
     EF = (double**)malloc(n_epoints * sizeof(double*));
     for (j = 0; j < n_epoints; j++)
         EF[j] = (double*)malloc(4 * sizeof(double));
@@ -717,35 +720,74 @@ int main()
         i = fscanf(fel, "%lf", &EF[j / 4][j % 4]);
         j++;
     }
-    printf("%i", n_epoints);
+    printf("%zu", n_epoints);
     /*
     for (i = 0; i < n_epoints; i++)
     {
         printf("%lf\t%lf\t%lf\t%lf\n", EF[i][0], EF[i][1], EF[i][2], EF[i][3]);
     }
     */
+    Adapter adapter(EF, n_epoints);
+    Mytree* kdtree;
+    kdtree = new Mytree(3, adapter);
+    (*kdtree).buildIndex();
+    // Создаешь дерево
     FILE* fw;
-    fw = fopen("efield09", "w");
+    char fwname[30];
     /*int n0;
     printf("\nn0=...");
     scanf("%d", &n0);*/
-    double r[6] = { 0, 0, 0, 0, -0.75, 0 };
-    double mf[3];
-#pragma omp parallel for ordered
-    for (i = 0; i < 600; i++)
+    double r[6] = { 0, 0, 0, 0, -2.5, 0 };
+    double Ans[1201][3];
+    fw = fopen("check", "w");
+#pragma omp parallel for
+    for (i = 0; i < 1201; i++)
     {
-        double local_mf[3], local_r[6];
-#pragma omp critical
-        {
-            memcpy(local_r, r, 6 * sizeof(double));
-        }
-        local_r[4] += i * (1.0 / L);
-        get_ef(EF, n_epoints, local_r, local_mf);
+        double local_ef[3], local_r[6];
+        memcpy(local_r, r, 6 * sizeof(double));
+        local_r[4] += i * (5.0 / L);
+        get_ef( kdtree, n_epoints, local_r, local_ef);
         //ordered can be changed to critical for faster calculations if order is not required
-#pragma omp ordered
-        {
-            fprintf(fw, "%i\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, local_mf[0], local_mf[1], local_mf[2], local_r[0], local_r[2], local_r[4]);
-            printf("%i\t", i);
-        }
+        Ans[i][0] = local_ef[0];
+        Ans[i][1] = local_ef[1];
+        Ans[i][2] = local_ef[2];
+        //               fprintf(fw, "%i\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, local_mf[0], local_mf[1], local_mf[2], local_r[0], local_r[2], local_r[4]);
+        printf("%i\t", i);
     }
+    for (i = 0; i < 1201; i++)
+    {
+        fprintf(fw, "%i\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, Ans[i][0], Ans[i][1], Ans[i][2], 0 , 0, -2.5 + i * (5.0 / L));
+    }
+/*
+    for (k = 0; k < 57; k++)
+    {
+        sprintf(fwname, "Ef_%d.dat", (k*5));
+        fw = fopen(fwname, "w");
+        for (j = 0; j < 113; j++)
+        {
+#pragma omp parallel for
+            for (i = 0; i < 1201; i++)
+            {
+                double local_ef[3], local_r[6];
+                memcpy(local_r, r, 6 * sizeof(double));
+                local_r[4] += i * (5.0 / L);
+                get_ef(EF, n_epoints, local_r, local_ef);
+                //ordered can be changed to critical for faster calculations if order is not required
+                Ans[i][0] = local_ef[0];
+                Ans[i][1] = local_ef[1];
+                Ans[i][2] = local_ef[2];
+                //               fprintf(fw, "%i\t%lf\t%lf\t%lf\t%lf\t%lf\t%lf\n", i, local_mf[0], local_mf[1], local_mf[2], local_r[0], local_r[2], local_r[4]);
+                               printf("%i\t", i);
+            }
+            for (i = 0; i < 1201; i++)
+            {
+                fprintf(fw, "%lf\t%lf\t%lf\n", Ans[i][0], Ans[i][1], Ans[i][2]);
+            }
+            printf("\n\n%i\t%i\n\n", k, j);
+            r[0] += 5.0/L;
+        }
+        r[2] += 5.0 / L;
+        fclose(fw);
+    }
+*/
 }
