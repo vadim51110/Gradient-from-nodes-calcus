@@ -6,7 +6,7 @@ The ranges for varying the parameters are calculated at the preliminary stage wi
 To prevent the influence of artifacts on the results, the exclusion of erroneous results due to exceeding the 2 standart deviation is used.
 Also during the least square method results that results that deviate too much are also excluded but by 3 standart deviation.
 
-used nanoflann library for optimization:
+Used nanoflann library for optimization:
 nanoflann: https://github.com/jlblancoc/nanoflann
 
-Program was writen on C and later translated on C+.
+Program was writen on C and later translated on C++.
